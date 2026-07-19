@@ -548,6 +548,7 @@ async function createNewSync() {
   if (!token) { toast("Zadaj GitHub token"); return; }
   try {
     toast("Vytváram sync…");
+    setGhConfig(token, ""); // token musí byť uložený skôr, než ghRequest naň siahne
     const gistId = await ghCreateGist(buildBackupObject());
     setGhConfig(token, gistId);
     localStorage.setItem(GH_LAST_SYNC_KEY, new Date().toISOString());
@@ -555,6 +556,8 @@ async function createNewSync() {
     renderSyncStatus();
   } catch (e) {
     console.error(e);
+    setGhConfig("", ""); // vyčistiť neúspešný pokus, nech nezostane zaseknutý zlý token
+    renderSyncStatus();
     toast("Nepodarilo sa vytvoriť sync: " + e.message);
   }
 }
