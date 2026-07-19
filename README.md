@@ -43,13 +43,37 @@ Toto je jednorazové nastavenie cez webové rozhranie, žiadny terminál ani zna
 
 ## Synchronizácia dát medzi iPhone a Macom
 
-Appka **nemá automatický sync** (bolo to vedomé rozhodnutie – bez servera, bez Apple Developer účtu). Postup:
-1. V appke na jednom zariadení: záložka **Export** → **Exportovať zálohu (JSON)**
-2. Súbor ulož/presuň do priečinka v **iCloud Drive**
-3. Na druhom zariadení: záložka **Export** → **Importovať zálohu (JSON)** → vyber ten istý súbor
-4. Záznamy sa zlúčia podľa ID, nič sa neprepíše duplicitne
+Appka nemá vlastný server – dve možnosti podľa toho, či chceš automatiku alebo nulovú závislosť na cudzej službe.
 
-Jedna záloha obsahuje obe časti naraz – **Prehľad** (dovolenka/služby) aj **Dnes/História** (príchod-odchod). Pri importe sa dni z Prehľadu zlúčia tak, že importovaný súbor prepíše zhodné dátumy (predpoklad: importuješ z toho zariadenia, kde si naposledy upravoval kalendár). Po importe sa appka automaticky obnoví.
+### Automatický sync cez GitHub Gist (záložka Export)
+
+Dáta appky sa uložia do tvojho **súkromného** GitHub Gistu. Sync nie je real-time (nedeje sa to okamžite pri každom písmenku), ale prebehne automaticky pri otvorení appky (ak zapneš "Auto-sync pri otvorení appky") alebo kedykoľvek stlačíš **Sync teraz**.
+
+**Nastavenie na prvom zariadení:**
+1. Vytvor si GitHub token na https://github.com/settings/tokens/new (alebo cez Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token)
+2. Nastav mu **iba** scope **`gist`** (nič iné nezaškrtávaj – token nemá mať prístup k repozitárom ani k účtu). Expiráciu si zvoľ podľa seba (napr. "No expiration" alebo 1 rok).
+3. Skopíruj vygenerovaný token (zobrazí sa len raz)
+4. V appke: záložka **Export** → vlož token do poľa "GitHub token" → **Vytvoriť nový sync (prvé zariadenie)**
+5. Zapni **Auto-sync pri otvorení appky**
+
+**Pripojenie druhého zariadenia:**
+1. Na prvom zariadení: záložka Export → **Skopírovať sync kód pre druhé zariadenie**
+2. Na druhom zariadení: vlož skopírovaný kód do poľa "Vlož sync kód z druhého zariadenia" → **Pripojiť**
+3. Zapni tam tiež Auto-sync
+
+**Riziká, o ktorých treba vedieť:**
+- Token sa ukladá v prehliadači zariadenia (localStorage) v nešifrovanej podobe. Pri scope obmedzenom len na `gist` je dosah zneužitia obmedzený na tvoje gisty, ale nie je to bezpečnostne "čisté" riešenie ako plnohodnotný backend s autentifikáciou.
+- Ak upravíš **ten istý deň** v Prehľade na oboch zariadeniach bez toho, aby si medzitým spustil sync, vyhrá ten záznam, ktorý sa naposledy zapísal do gistu – nie nutne časovo najnovšia úprava. Pre bežné použitie (jeden človek, dve zariadenia) je toto riziko zanedbateľné, ale buď si ho vedomý.
+- Fetch volania na `api.github.com` z appky som otestoval logicky (mockované volania), no reálne správanie CORS v Safari si over pri prvom použití – ak by nastal problém, ozvi sa a doriešime to.
+
+### Manuálny export/import (bez GitHub, bez tokenu)
+
+Stále funguje pôvodný spôsob – v záložke Export:
+1. Na jednom zariadení: **Exportovať zálohu (JSON)**
+2. Súbor presuň cez **iCloud Drive** na druhé zariadenie
+3. Tam: **Importovať zálohu (JSON)** → vyber súbor
+
+Jedna záloha obsahuje obe časti naraz – Prehľad aj Dnes/História. Po importe sa appka automaticky obnoví.
 
 ## Technické detaily
 - Čistý HTML/CSS/JS + React (zabalený cez esbuild, bez CDN závislostí) – appka je plne offline schopná po prvom načítaní

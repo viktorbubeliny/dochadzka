@@ -416,6 +416,213 @@ function importJson(file) {
   reader.readAsText(file);
 }
 
+/* ---------- GitHub Gist auto-sync ---------- */
+
+const GH_TOKEN_KEY = "gh_sync_token";
+const GH_GIST_ID_KEY = "gh_sync_gist_id";
+const GH_AUTOSYNC_KEY = "gh_sync_auto";
+const GH_LAST_SYNC_KEY = "gh_sync_last";
+const GIST_FILENAME = "dochadzka-sync.json";
+
+function getGhConfig() {
+  return {
+    token: localStorage.getItem(GH_TOKEN_KEY) || "",
+    gistId: localStorage.getItem(GH_GIST_ID_KEY) || ""
+  };
+}
+
+function setGhConfig(token, gistId) {
+  localStorage.setItem(GH_TOKEN_KEY, token);
+  localStorage.setItem(GH_GIST_ID_KEY, gistId);
+}
+
+function clearGhConfig() {
+  [GH_TOKEN_KEY, GH_GIST_ID_KEY, GH_AUTOSYNC_KEY, GH_LAST_SYNC_KEY].forEach((k) => localStorage.removeItem(k));
+}
+
+function buildBackupObject() {
+  return {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    dochadzka: entries,
+    prehlad: {
+      entries: safeParseLS("prehlad_entries") || {},
+      allowances: safeParseLS("prehlad_allowances") || null
+    }
+  };
+}
+
+// Zdieľaná logika s importJson - aplikuje zálohu (lokálny súbor aj vzdialený gist) na lokálny stav.
+function applyRemoteBackup(backup) {
+  let added = 0, updated = 0, prehladCount = 0;
+  if (Array.isArray(backup)) {
+    ({ added, updated } = importDochadzka(backup));
+  } else if (backup && typeof backup === "object") {
+    ({ added, updated } = importDochadzka(backup.dochadzka || []));
+    prehladCount = importPrehlad(backup.prehlad);
+  }
+  saveEntries(entries);
+  return { added, updated, prehladCount };
+}
+
+async function ghRequest(url, options = {}) {
+  const { token } = getGhConfig();
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      "Authorization": `token ${token}`,
+      "Accept": "application/vnd.github+json",
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`GitHub API ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+async function ghFetchGistContent(gistId) {
+  const data = await ghRequest(`https://api.github.com/gists/${gistId}`);
+  const file = data.files && data.files[GIST_FILENAME];
+  if (!file) return null;
+  if (file.truncated && file.raw_url) {
+    const rawRes = await fetch(file.raw_url);
+    return JSON.parse(await rawRes.text());
+  }
+  return JSON.parse(file.content);
+}
+
+async function ghCreateGist(contentObj) {
+  const data = await ghRequest("https://api.github.com/gists", {
+    method: "POST",
+    body: JSON.stringify({
+      description: "Dochádzka appka - sync záloha (súkromné)",
+      public: false,
+      files: { [GIST_FILENAME]: { content: JSON.stringify(contentObj, null, 2) } }
+    })
+  });
+  return data.id;
+}
+
+async function ghUpdateGist(gistId, contentObj) {
+  await ghRequest(`https://api.github.com/gists/${gistId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      files: { [GIST_FILENAME]: { content: JSON.stringify(contentObj, null, 2) } }
+    })
+  });
+}
+
+async function syncNow(opts = {}) {
+  const silent = !!opts.silent;
+  const { token, gistId } = getGhConfig();
+  if (!token || !gistId) { if (!silent) toast("Sync nie je nastavený"); return; }
+  if (!silent) toast("Synchronizujem…");
+  try {
+    const remote = await ghFetchGistContent(gistId);
+    let changed = false;
+    if (remote) {
+      const { added, updated, prehladCount } = applyRemoteBackup(remote);
+      changed = added > 0 || updated > 0 || prehladCount > 0;
+    }
+    const merged = buildBackupObject();
+    await ghUpdateGist(gistId, merged);
+    localStorage.setItem(GH_LAST_SYNC_KEY, new Date().toISOString());
+    renderSyncStatus();
+    if (changed) {
+      toast("Sync hotový, nové dáta – appka sa obnoví");
+      setTimeout(() => location.reload(), 1000);
+    } else if (!silent) {
+      toast("Sync hotový, žiadne nové dáta");
+    }
+  } catch (e) {
+    console.error(e);
+    if (!silent) toast("Sync zlyhal: " + e.message);
+  }
+}
+
+async function createNewSync() {
+  const token = document.getElementById("ghToken").value.trim();
+  if (!token) { toast("Zadaj GitHub token"); return; }
+  try {
+    toast("Vytváram sync…");
+    const gistId = await ghCreateGist(buildBackupObject());
+    setGhConfig(token, gistId);
+    localStorage.setItem(GH_LAST_SYNC_KEY, new Date().toISOString());
+    toast("Sync vytvorený");
+    renderSyncStatus();
+  } catch (e) {
+    console.error(e);
+    toast("Nepodarilo sa vytvoriť sync: " + e.message);
+  }
+}
+
+function buildSyncCode() {
+  const { token, gistId } = getGhConfig();
+  return btoa(JSON.stringify({ t: token, g: gistId }));
+}
+
+async function connectWithCode() {
+  const code = document.getElementById("syncCodeInput").value.trim();
+  if (!code) { toast("Vlož sync kód"); return; }
+  try {
+    const parsed = JSON.parse(atob(code));
+    if (!parsed.t || !parsed.g) throw new Error("neplatný kód");
+    setGhConfig(parsed.t, parsed.g);
+    toast("Pripájam…");
+    renderSyncStatus();
+    await syncNow();
+  } catch (e) {
+    console.error(e);
+    toast("Neplatný sync kód");
+  }
+}
+
+function renderSyncStatus() {
+  const { token, gistId } = getGhConfig();
+  const configured = !!(token && gistId);
+  const setupEl = document.getElementById("syncSetup");
+  const statusEl = document.getElementById("syncStatus");
+  if (!setupEl || !statusEl) return;
+  setupEl.hidden = configured;
+  statusEl.hidden = !configured;
+  if (configured) {
+    const last = localStorage.getItem(GH_LAST_SYNC_KEY);
+    document.getElementById("lastSyncTime").textContent = last ? new Date(last).toLocaleString("sk-SK") : "zatiaľ nikdy";
+    document.getElementById("autoSyncToggle").checked = localStorage.getItem(GH_AUTOSYNC_KEY) === "1";
+  }
+}
+
+document.getElementById("btnCreateGist").addEventListener("click", createNewSync);
+document.getElementById("btnConnectSync").addEventListener("click", connectWithCode);
+document.getElementById("btnSyncNow").addEventListener("click", () => syncNow());
+document.getElementById("btnCopySyncCode").addEventListener("click", async () => {
+  const code = buildSyncCode();
+  try {
+    await navigator.clipboard.writeText(code);
+    toast("Sync kód skopírovaný");
+  } catch (e) {
+    window.prompt("Skopíruj tento kód:", code);
+  }
+});
+document.getElementById("autoSyncToggle").addEventListener("change", (e) => {
+  localStorage.setItem(GH_AUTOSYNC_KEY, e.target.checked ? "1" : "0");
+});
+document.getElementById("btnDisconnectSync").addEventListener("click", () => {
+  if (confirm("Odpojiť sync? Lokálne dáta zostanú, len sa appka prestane pripájať na GitHub.")) {
+    clearGhConfig();
+    renderSyncStatus();
+    toast("Sync odpojený");
+  }
+});
+
+renderSyncStatus();
+if (localStorage.getItem(GH_AUTOSYNC_KEY) === "1") {
+  syncNow({ silent: true });
+}
+
 /* ---------- tabs ---------- */
 
 function switchTab(id) {

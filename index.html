@@ -74,6 +74,29 @@
       <input type="file" id="importFile" accept="application/json" hidden>
     </label>
 
+    <h2>Automatický sync (GitHub Gist)</h2>
+    <p class="hint">Bez ručného exportu/importu — dáta sa ukladajú do súkromného GitHub Gistu. Nie je to real-time (sync prebehne pri otvorení appky alebo tlačidlom), ale netreba nič manuálne presúvať.</p>
+
+    <div id="syncSetup">
+      <label class="field">GitHub token (scope: gist)
+        <input type="password" id="ghToken" placeholder="ghp_...">
+      </label>
+      <button id="btnCreateGist" class="btn btn-secondary">Vytvoriť nový sync (prvé zariadenie)</button>
+      <div class="hint" style="margin:10px 0 4px;">— alebo, ak už máš sync z druhého zariadenia —</div>
+      <label class="field">Vlož sync kód z druhého zariadenia
+        <input type="text" id="syncCodeInput" placeholder="prilep sem kód">
+      </label>
+      <button id="btnConnectSync" class="btn btn-secondary">Pripojiť</button>
+    </div>
+
+    <div id="syncStatus" hidden>
+      <p class="hint">Sync je nastavený. Posledný sync: <span id="lastSyncTime">-</span></p>
+      <button id="btnSyncNow" class="btn btn-primary">Sync teraz</button>
+      <button id="btnCopySyncCode" class="btn btn-secondary">Skopírovať sync kód pre druhé zariadenie</button>
+      <label class="toggle-row"><input type="checkbox" id="autoSyncToggle"> Auto-sync pri otvorení appky</label>
+      <button id="btnDisconnectSync" class="btn btn-ghost btn-warn">Odpojiť sync</button>
+    </div>
+
     <h2>Nebezpečná zóna</h2>
     <button id="btnWipe" class="btn btn-ghost btn-warn">Vymazať všetky dáta</button>
   </section>
