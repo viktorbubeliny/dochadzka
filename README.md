@@ -75,6 +75,15 @@ Stále funguje pôvodný spôsob – v záložke Export:
 
 Jedna záloha obsahuje obe časti naraz – Prehľad aj Dnes/História. Po importe sa appka automaticky obnoví.
 
+## Aktualizácia appky na novú verziu
+
+1. Na GitHube: **Add file → Upload files** → nahraj zmenené súbory → **Commit changes**
+2. Počkaj ~1 minútu na prebuild GitHub Pages
+3. Otvor appku – od verzie 1.2 sa nové súbory stiahnu automaticky pri najbližšom otvorení s internetom (starší cache-first mechanizmus, ktorý vedel zaseknúť starú verziu, je nahradený network-first stratégiou)
+4. **Ktorá verzia mi beží?** Pozri spodok záložky **Export** – je tam číslo verzie (napr. „Dochádzka v1.2"). Ak nesedí s očakávanou, zavri appku úplne a otvor znova, prípadne v Safari na adrese appky urob Cmd+Option+R.
+
+Pozn.: prechod zo starej verzie (v1.x s cache-first) na v1.2 ešte vyžaduje jeden ručný hard-refresh (Cmd+Option+R v Safari na adrese appky, na iPhone: Nastavenia → Safari → Vymazať históriu a dáta stránok, alebo appku odinštalovať a pridať na plochu znova). Od v1.2 ďalej už to bude automatické.
+
 ## Technické detaily
 - Čistý HTML/CSS/JS + React (zabalený cez esbuild, bez CDN závislostí) – appka je plne offline schopná po prvom načítaní
 - Dáta sa ukladajú v `localStorage` prehliadača (zostávajú len na danom zariadení)

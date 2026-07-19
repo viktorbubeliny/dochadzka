@@ -118,6 +118,14 @@ main {
 }
 .toggle-row input { width: 18px; height: 18px; }
 
+.version-line {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: 24px;
+  opacity: .7;
+}
+
 h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin: 24px 0 10px; }
 .hint { color: var(--text-dim); font-size: 13px; line-height: 1.5; margin: -4px 0 12px; }
 

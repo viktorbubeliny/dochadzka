@@ -1,5 +1,6 @@
 "use strict";
 
+const APP_VERSION = "1.2";
 const STORAGE_KEY = "dochadzka_entries_v1";
 
 /* ---------- utils ---------- */
@@ -44,7 +45,9 @@ function toast(msg) {
   el.textContent = msg;
   el.hidden = false;
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { el.hidden = true; }, 2200);
+  // dlhšie správy (chybové hlášky) zostanú viditeľné dlhšie, aby sa dali dočítať
+  const duration = Math.min(10000, Math.max(2200, msg.length * 55));
+  toast._t = setTimeout(() => { el.hidden = true; }, duration);
 }
 
 /* ---------- storage ---------- */
@@ -470,17 +473,33 @@ async function ghRequest(url, options = {}) {
   const res = await fetch(url, {
     ...options,
     headers: {
-      "Authorization": `token ${token}`,
+      "Authorization": `Bearer ${token}`,
       "Accept": "application/vnd.github+json",
       "Content-Type": "application/json",
+      "X-GitHub-Api-Version": "2022-11-28",
       ...(options.headers || {})
     }
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    if (res.status === 401) {
+      throw new Error("Token je neplatný alebo expirovaný (401). Skontroluj: 1) je to CLASSIC token (začína ghp_), nie fine-grained, 2) je skopírovaný celý bez medzier, 3) nie je revokovaný/expirovaný.");
+    }
+    if (res.status === 403) {
+      throw new Error("Prístup zamietnutý (403). Token pravdepodobne nemá zaškrtnutý scope 'gist', alebo GitHub limituje požiadavky – skús o minútu.");
+    }
+    if (res.status === 404) {
+      throw new Error("Gist sa nenašiel (404). Ak si ho zmazal na GitHube, odpoj sync a vytvor nový.");
+    }
     throw new Error(`GitHub API ${res.status}: ${text.slice(0, 200)}`);
   }
   return res.json();
+}
+
+// Overí token samostatným volaním skôr, než sa čokoľvek vytvorí -
+// jasnejšia diagnostika pre používateľa.
+async function ghVerifyToken() {
+  await ghRequest("https://api.github.com/gists?per_page=1");
 }
 
 async function ghFetchGistContent(gistId) {
@@ -544,11 +563,18 @@ async function syncNow(opts = {}) {
 }
 
 async function createNewSync() {
-  const token = document.getElementById("ghToken").value.trim();
+  // odstráni všetky biele znaky vrátane neviditeľných z kopírovania (nbsp, newline)
+  const token = document.getElementById("ghToken").value.replace(/\s+/g, "");
   if (!token) { toast("Zadaj GitHub token"); return; }
+  if (!/^(ghp_|github_pat_)/.test(token)) {
+    toast("Toto nevyzerá ako GitHub token – classic token začína 'ghp_'. Skontroluj, či si skopíroval správnu hodnotu.");
+    return;
+  }
   try {
-    toast("Vytváram sync…");
+    toast("Overujem token…");
     setGhConfig(token, ""); // token musí byť uložený skôr, než ghRequest naň siahne
+    await ghVerifyToken();
+    toast("Token OK, vytváram sync…");
     const gistId = await ghCreateGist(buildBackupObject());
     setGhConfig(token, gistId);
     localStorage.setItem(GH_LAST_SYNC_KEY, new Date().toISOString());
@@ -658,6 +684,9 @@ document.getElementById("btnWipe").addEventListener("click", () => {
 });
 
 /* ---------- init ---------- */
+
+const versionEl = document.getElementById("appVersion");
+if (versionEl) versionEl.textContent = "v" + APP_VERSION;
 
 renderClock();
 setInterval(renderClock, 30000);

@@ -1,4 +1,4 @@
-const CACHE_NAME = "dochadzka-cache-v2";
+const CACHE_NAME = "dochadzka-cache-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -27,18 +27,25 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// Network-first pre vlastné súbory appky: aktualizácie sa prejavia hneď pri
+// najbližšom načítaní s internetom, cache slúži len ako offline záloha.
+// Cudzie origins (api.github.com) sa neinterceptujú vôbec.
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((res) => {
+    fetch(event.request)
+      .then((res) => {
+        if (res && res.ok) {
           const resClone = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
-          return res;
-        })
-        .catch(() => cached);
-    })
+        }
+        return res;
+      })
+      .catch(() =>
+        caches.match(event.request).then((cached) => cached || caches.match("./index.html"))
+      )
   );
 });
