@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Dochádzka</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+
+<!-- iOS specific -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dochádzka">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Dochádzka</h1>
+  <div id="clock" class="clock"></div>
+</header>
+
+<main>
+
+  <section id="tab-prehlad" class="tab active">
+    <div id="prehladRoot"></div>
+  </section>
+
+  <section id="tab-dnes" class="tab">
+    <div class="status-card" id="statusCard">
+      <div id="statusText" class="status-text">Načítavam...</div>
+      <div id="statusSub" class="status-sub"></div>
+    </div>
+
+    <button id="btnCheckIn" class="btn btn-primary">Príchod</button>
+    <button id="btnCheckOut" class="btn btn-danger" hidden>Odchod</button>
+
+    <div class="today-list">
+      <h2>Dnešné záznamy</h2>
+      <ul id="todayEntries" class="entry-list"></ul>
+    </div>
+
+    <button id="btnManualAdd" class="btn btn-ghost">+ Pridať záznam ručne</button>
+  </section>
+
+  <section id="tab-historia" class="tab">
+    <div class="summary-row">
+      <div class="summary-box">
+        <span class="summary-label">Tento týždeň</span>
+        <span id="weekTotal" class="summary-value">0h 0m</span>
+      </div>
+      <div class="summary-box">
+        <span class="summary-label">Tento mesiac</span>
+        <span id="monthTotal" class="summary-value">0h 0m</span>
+      </div>
+    </div>
+    <ul id="historyList" class="history-list"></ul>
+  </section>
+
+  <section id="tab-export" class="tab">
+    <h2>Export dát</h2>
+    <p class="hint">Export do CSV pre mzdy/účtovníctvo.</p>
+    <button id="btnExportCsv" class="btn btn-secondary">Exportovať CSV</button>
+
+    <h2>Synchronizácia medzi zariadeniami</h2>
+    <p class="hint">Bez servera – export/import súboru cez iCloud Drive. Na jednom zariadení exportuj, súbor ulož do iCloud Drive priečinka, na druhom zariadení ho importuj (záznamy sa zlúčia, nič sa neprepíše duplicitne).</p>
+    <button id="btnExportJson" class="btn btn-secondary">Exportovať zálohu (JSON)</button>
+    <label class="btn btn-secondary file-label">
+      Importovať zálohu (JSON)
+      <input type="file" id="importFile" accept="application/json" hidden>
+    </label>
+
+    <h2>Nebezpečná zóna</h2>
+    <button id="btnWipe" class="btn btn-ghost btn-warn">Vymazať všetky dáta</button>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="tabbtn active" data-tab="tab-prehlad">Prehľad</button>
+  <button class="tabbtn" data-tab="tab-dnes">Dnes</button>
+  <button class="tabbtn" data-tab="tab-historia">História</button>
+  <button class="tabbtn" data-tab="tab-export">Export</button>
+</nav>
+
+<div id="toast" class="toast" hidden></div>
+
+<dialog id="editDialog" class="edit-dialog">
+  <form id="editForm" method="dialog">
+    <h3>Upraviť záznam</h3>
+    <label>Dátum
+      <input type="date" id="editDate" required>
+    </label>
+    <label>Príchod
+      <input type="time" id="editIn" required>
+    </label>
+    <label>Odchod
+      <input type="time" id="editOut">
+    </label>
+    <label>Poznámka
+      <input type="text" id="editNote" maxlength="80">
+    </label>
+    <div class="dialog-actions">
+      <button type="button" id="editDelete" class="btn btn-warn">Zmazať</button>
+      <button type="button" id="editCancel" class="btn btn-ghost">Zrušiť</button>
+      <button type="submit" id="editSave" class="btn btn-primary">Uložiť</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="prehlad.bundle.js" defer></script>
+<script src="app.js"></script>
+</body>
+</html>
