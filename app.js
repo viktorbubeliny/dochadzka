@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.7";
+const APP_VERSION = "1.8";
 const STORAGE_KEY = "dochadzka_entries_v1";
 
 /* ---------- utils ---------- */
@@ -486,6 +486,10 @@ async function ghRequest(url, options = {}) {
       throw new Error("Token je neplatný alebo expirovaný (401). Skontroluj: 1) je to CLASSIC token (začína ghp_), nie fine-grained, 2) je skopírovaný celý bez medzier, 3) nie je revokovaný/expirovaný.");
     }
     if (res.status === 403) {
+      const { token: curToken } = getGhConfig();
+      if (/^github_pat_/.test(curToken)) {
+        throw new Error("Prístup zamietnutý (403) – máš fine-grained token (github_pat_...), ten Gist API nepodporuje bez ohľadu na povolenia. Odpoj sync a vytvor nový s CLASSIC tokenom (začína 'ghp_', scope 'gist').");
+      }
       throw new Error("Prístup zamietnutý (403). Token pravdepodobne nemá zaškrtnutý scope 'gist', alebo GitHub limituje požiadavky – skús o minútu.");
     }
     if (res.status === 404) {
@@ -566,7 +570,11 @@ async function createNewSync() {
   // odstráni všetky biele znaky vrátane neviditeľných z kopírovania (nbsp, newline)
   const token = document.getElementById("ghToken").value.replace(/\s+/g, "");
   if (!token) { toast("Zadaj GitHub token"); return; }
-  if (!/^(ghp_|github_pat_)/.test(token)) {
+  if (/^github_pat_/.test(token)) {
+    toast("Toto je fine-grained token (github_pat_...) – GitHub Gist API ho nepodporuje, aj keby si mal zaškrtnuté povolenia. Vytvor CLASSIC token: Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token, zaškrtni scope 'gist'.");
+    return;
+  }
+  if (!/^ghp_/.test(token)) {
     toast("Toto nevyzerá ako GitHub token – classic token začína 'ghp_'. Skontroluj, či si skopíroval správnu hodnotu.");
     return;
   }
