@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.8";
+const APP_VERSION = "1.9";
 const STORAGE_KEY = "dochadzka_entries_v1";
 
 /* ---------- utils ---------- */
@@ -482,20 +482,25 @@ async function ghRequest(url, options = {}) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    let ghMessage = "";
+    try { ghMessage = JSON.parse(text).message || ""; } catch (e) {}
+    const scopesHeader = res.headers.get("x-oauth-scopes");
+    const suffix = ghMessage ? ` GitHub hovorí: "${ghMessage}".` : "";
     if (res.status === 401) {
-      throw new Error("Token je neplatný alebo expirovaný (401). Skontroluj: 1) je to CLASSIC token (začína ghp_), nie fine-grained, 2) je skopírovaný celý bez medzier, 3) nie je revokovaný/expirovaný.");
+      throw new Error("Token je neplatný alebo expirovaný (401)." + suffix + " Skontroluj: 1) je to CLASSIC token (začína ghp_), nie fine-grained, 2) je skopírovaný celý bez medzier, 3) nie je revokovaný/expirovaný.");
     }
     if (res.status === 403) {
       const { token: curToken } = getGhConfig();
       if (/^github_pat_/.test(curToken)) {
-        throw new Error("Prístup zamietnutý (403) – máš fine-grained token (github_pat_...), ten Gist API nepodporuje bez ohľadu na povolenia. Odpoj sync a vytvor nový s CLASSIC tokenom (začína 'ghp_', scope 'gist').");
+        throw new Error("Prístup zamietnutý (403) – máš fine-grained token (github_pat_...), ten Gist API nepodporuje bez ohľadu na povolenia." + suffix + " Odpoj sync a vytvor nový s CLASSIC tokenom (začína 'ghp_', scope 'gist').");
       }
-      throw new Error("Prístup zamietnutý (403). Token pravdepodobne nemá zaškrtnutý scope 'gist', alebo GitHub limituje požiadavky – skús o minútu.");
+      const scopeNote = scopesHeader !== null ? ` Scopes na tokene: "${scopesHeader}".` : "";
+      throw new Error("Prístup zamietnutý (403)." + suffix + scopeNote + " Ak medzi scopes vyššie nie je 'gist', vytvor token znova so zaškrtnutým 'gist'. Ak tam je, ide pravdepodobne o dočasný rate limit – skús o minútu.");
     }
     if (res.status === 404) {
-      throw new Error("Gist sa nenašiel (404). Ak si ho zmazal na GitHube, odpoj sync a vytvor nový.");
+      throw new Error("Gist sa nenašiel (404)." + suffix + " Ak si ho zmazal na GitHube, odpoj sync a vytvor nový.");
     }
-    throw new Error(`GitHub API ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`GitHub API ${res.status}: ${ghMessage || text.slice(0, 200)}`);
   }
   return res.json();
 }
