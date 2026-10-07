@@ -222,3 +222,21 @@ h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: v
 }
 .dialog-actions { display: flex; gap: 8px; margin-top: 16px; }
 .dialog-actions .btn { margin-bottom: 0; padding: 12px; font-size: 14px; }
+
+/* ---------- auth overlay (Supabase login) ---------- */
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+  z-index: 100;
+}
+.auth-box {
+  width: 100%;
+  max-width: 360px;
+}
+.auth-box h1 { font-size: 22px; margin: 0 0 8px; }
+.auth-box .btn { width: 100%; margin-top: 4px; }

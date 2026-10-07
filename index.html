@@ -19,6 +19,20 @@
 </head>
 <body>
 
+<div id="authOverlay" class="auth-overlay">
+  <div class="auth-box">
+    <h1>Dochádzka</h1>
+    <p class="hint">Prihlás sa cez email – pošleme ti odkaz na prihlásenie, heslo nepotrebuješ.</p>
+    <label class="field">Email
+      <input type="email" id="authEmail" placeholder="tvoj@email.com" autocomplete="email">
+    </label>
+    <button id="btnSendMagicLink" class="btn btn-primary">Poslať prihlasovací odkaz</button>
+    <p id="authStatus" class="hint"></p>
+  </div>
+</div>
+
+<div id="appRoot" hidden>
+
 <header class="topbar">
   <h1>Dochádzka</h1>
   <div id="clock" class="clock"></div>
@@ -74,28 +88,11 @@
       <input type="file" id="importFile" accept="application/json" hidden>
     </label>
 
-    <h2>Automatický sync (GitHub Gist)</h2>
-    <p class="hint">Bez ručného exportu/importu — dáta sa ukladajú do súkromného GitHub Gistu. Nie je to real-time (sync prebehne pri otvorení appky alebo tlačidlom), ale netreba nič manuálne presúvať.</p>
-
-    <div id="syncSetup">
-      <label class="field">GitHub token (scope: gist)
-        <input type="password" id="ghToken" placeholder="ghp_...">
-      </label>
-      <button id="btnCreateGist" class="btn btn-secondary">Vytvoriť nový sync (prvé zariadenie)</button>
-      <div class="hint" style="margin:10px 0 4px;">— alebo, ak už máš sync z druhého zariadenia —</div>
-      <label class="field">Vlož sync kód z druhého zariadenia
-        <input type="text" id="syncCodeInput" placeholder="prilep sem kód">
-      </label>
-      <button id="btnConnectSync" class="btn btn-secondary">Pripojiť</button>
-    </div>
-
-    <div id="syncStatus" hidden>
-      <p class="hint">Sync je nastavený. Posledný sync: <span id="lastSyncTime">-</span></p>
-      <button id="btnSyncNow" class="btn btn-primary">Sync teraz</button>
-      <button id="btnCopySyncCode" class="btn btn-secondary">Skopírovať sync kód pre druhé zariadenie</button>
-      <label class="toggle-row"><input type="checkbox" id="autoSyncToggle"> Auto-sync pri otvorení appky</label>
-      <button id="btnDisconnectSync" class="btn btn-ghost btn-warn">Odpojiť sync</button>
-    </div>
+    <h2>Účet a synchronizácia</h2>
+    <p class="hint">Prihlásený ako <strong id="accountEmail">-</strong>. Dáta sa ukladajú do cloudu a synchronizujú automaticky medzi všetkými zariadeniami, kde si prihlásený rovnakým emailom.</p>
+    <p class="hint">Posledná synchronizácia: <span id="lastSyncTime">-</span></p>
+    <button id="btnSyncNow" class="btn btn-secondary">Synchronizovať teraz</button>
+    <button id="btnSignOut" class="btn btn-ghost btn-warn">Odhlásiť sa</button>
 
     <h2>Nebezpečná zóna</h2>
     <button id="btnWipe" class="btn btn-ghost btn-warn">Vymazať všetky dáta</button>
@@ -137,6 +134,10 @@
   </form>
 </dialog>
 
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="cloud-sync.js" defer></script>
 <script src="prehlad.bundle.js" defer></script>
 <script src="app.js"></script>
 </body>

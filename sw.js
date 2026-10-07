@@ -1,9 +1,10 @@
-const CACHE_NAME = "dochadzka-cache-v3";
+const CACHE_NAME = "dochadzka-cache-v4";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./cloud-sync.js",
   "./prehlad.bundle.js",
   "./manifest.json",
   "./icons/icon-192.png",
@@ -29,7 +30,7 @@ self.addEventListener("activate", (event) => {
 
 // Network-first pre vlastné súbory appky: aktualizácie sa prejavia hneď pri
 // najbližšom načítaní s internetom, cache slúži len ako offline záloha.
-// Cudzie origins (api.github.com) sa neinterceptujú vôbec.
+// Cudzie origins (Supabase API, jsdelivr CDN) sa neinterceptujú vôbec.
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);

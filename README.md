@@ -4,7 +4,7 @@ Samostatná appka (Progressive Web App). Po nainštalovaní beží ako ikona na 
 
 ## Obsah appky
 
-- **Prehľad** (hlavná záložka) – kalendár s dovolenkou, dodatkovou dovolenkou, 25h službami, osmičkami, SC/SVa/SVc, PN/OČR, ročné a mesačné súčty, nárok/zostatok dní, hodiny po servisných obdobiach. Presne to, čo bolo v `prehlad-dni_2.jsx`, len dáta sa teraz ukladajú lokálne v prehliadači (predtým to bolo cez `window.storage`).
+- **Prehľad** (hlavná záložka) – kalendár s dovolenkou, dodatkovou dovolenkou, 25h službami, osmičkami, SC/SVa/SVc, PN/OČR, ročné a mesačné súčty, nárok/zostatok dní, hodiny po servisných obdobiach. Presne to, čo bolo v `prehlad-dni_2.jsx`. Dáta beží cez `window.storage` (od v2.0 definované v `cloud-sync.js` – localStorage + automatický Supabase push/pull), bundle samotný sa nemenil.
 - **Dnes** – jednoduchý príchod/odchod s výpočtom odpracovaných hodín.
 - **História** – prehľad dní, týždenný a mesačný súčet.
 - **Export** – CSV export pre mzdy, JSON záloha/import na ručný sync cez iCloud Drive.
@@ -45,26 +45,30 @@ Toto je jednorazové nastavenie cez webové rozhranie, žiadny terminál ani zna
 
 Appka nemá vlastný server – dve možnosti podľa toho, či chceš automatiku alebo nulovú závislosť na cudzej službe.
 
-### Automatický sync cez GitHub Gist (záložka Export)
+### Automatický cloud sync cez Supabase (od verzie 2.0)
 
-Dáta appky sa uložia do tvojho **súkromného** GitHub Gistu. Sync nie je real-time (nedeje sa to okamžite pri každom písmenku), ale prebehne automaticky pri otvorení appky (ak zapneš "Auto-sync pri otvorení appky") alebo kedykoľvek stlačíš **Sync teraz**.
+Appka má vlastný cloud účet cez **Supabase** (projekt "Dochádzka", viazaný na Viktorov Supabase účet). Prihlasovanie je bez hesla – magic link na email. Dáta sa ukladajú do tabuľky `backups` (jeden riadok na používateľa, stĺpec `data` typu `jsonb` – presne tá istá štruktúra ako predtým `exportJson()`/`buildBackupObject()` produkovali pre GitHub Gist). Push sa deje debounced (~1,5s po zmene), pull pri otvorení appky + cez Supabase Realtime subscription (zmena na jednom zariadení sa prejaví na druhom automaticky, appka sa po novom pulle sama obnoví – `location.reload()`).
 
-**Nastavenie na prvom zariadení:**
-1. Vytvor si GitHub token na https://github.com/settings/tokens/new (alebo cez Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token)
-2. Nastav mu **iba** scope **`gist`** (nič iné nezaškrtávaj – token nemá mať prístup k repozitárom ani k účtu). Expiráciu si zvoľ podľa seba (napr. "No expiration" alebo 1 rok).
-3. Skopíruj vygenerovaný token (zobrazí sa len raz)
-4. V appke: záložka **Export** → vlož token do poľa "GitHub token" → **Vytvoriť nový sync (prvé zariadenie)**
-5. Zapni **Auto-sync pri otvorení appky**
+**Kľúčové súbory:**
+- `cloud-sync.js` – celá Supabase vrstva: auth (magic link), `window.storage` shim pre Prehľad (React bundle, nezmenený), debounced push, realtime pull, auth gate (`#authOverlay` / `#appRoot` v `index.html`)
+- `app.js` – `buildBackupObject()`/`applyRemoteBackup()` ostali zdieľané s manuálnym exportom/importom; exponované na `window.__buildBackupObject` a `window.__applyRemoteBackupIfChanged` pre `cloud-sync.js`
 
-**Pripojenie druhého zariadenia:**
-1. Na prvom zariadení: záložka Export → **Skopírovať sync kód pre druhé zariadenie**
-2. Na druhom zariadení: vlož skopírovaný kód do poľa "Vlož sync kód z druhého zariadenia" → **Pripojiť**
-3. Zapni tam tiež Auto-sync
+**Supabase config (ak treba znova nastaviť/migrovať projekt):**
+```sql
+create table public.backups (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.backups enable row level security;
+create policy "select own backup" on public.backups for select using (auth.uid() = user_id);
+create policy "insert own backup" on public.backups for insert with check (auth.uid() = user_id);
+create policy "update own backup" on public.backups for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+alter publication supabase_realtime add table public.backups;
+```
+V Supabase dashboarde (Authentication → URL Configuration) musí byť nastavená Site URL / Redirect URL na `https://viktorbubeliny.github.io/dochadzka/`, inak magic link presmeruje zle.
 
-**Riziká, o ktorých treba vedieť:**
-- Token sa ukladá v prehliadači zariadenia (localStorage) v nešifrovanej podobe. Pri scope obmedzenom len na `gist` je dosah zneužitia obmedzený na tvoje gisty, ale nie je to bezpečnostne "čisté" riešenie ako plnohodnotný backend s autentifikáciou.
-- Ak upravíš **ten istý deň** v Prehľade na oboch zariadeniach bez toho, aby si medzitým spustil sync, vyhrá ten záznam, ktorý sa naposledy zapísal do gistu – nie nutne časovo najnovšia úprava. Pre bežné použitie (jeden človek, dve zariadenia) je toto riziko zanedbateľné, ale buď si ho vedomý.
-- Fetch volania na `api.github.com` z appky som otestoval logicky (mockované volania), no reálne správanie CORS v Safari si over pri prvom použití – ak by nastal problém, ozvi sa a doriešime to.
+**GitHub Gist sync (verzie 1.x) je úplne odstránený** – appka už nepoužíva žiadny GitHub token ani Gist. Dôvod zmeny: tokeny expirovali, fine-grained vs. classic token typ mýlil, 403/401 chyby boli ťažko diagnostikovateľné bez priameho prístupu k GitHub API odpovediam. Supabase dáva skutočné prihlásenie a priebežný (takmer real-time) sync bez manuálnej správy tokenov.
 
 ### Manuálny export/import (bez GitHub, bez tokenu)
 

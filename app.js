@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.9";
+const APP_VERSION = "2.0";
 const STORAGE_KEY = "dochadzka_entries_v1";
 
 /* ---------- utils ---------- */
@@ -64,6 +64,7 @@ function loadEntries() {
 
 function saveEntries(entries) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  if (window.__scheduleCloudPush) window.__scheduleCloudPush();
 }
 
 let entries = loadEntries();
@@ -419,29 +420,7 @@ function importJson(file) {
   reader.readAsText(file);
 }
 
-/* ---------- GitHub Gist auto-sync ---------- */
-
-const GH_TOKEN_KEY = "gh_sync_token";
-const GH_GIST_ID_KEY = "gh_sync_gist_id";
-const GH_AUTOSYNC_KEY = "gh_sync_auto";
-const GH_LAST_SYNC_KEY = "gh_sync_last";
-const GIST_FILENAME = "dochadzka-sync.json";
-
-function getGhConfig() {
-  return {
-    token: localStorage.getItem(GH_TOKEN_KEY) || "",
-    gistId: localStorage.getItem(GH_GIST_ID_KEY) || ""
-  };
-}
-
-function setGhConfig(token, gistId) {
-  localStorage.setItem(GH_TOKEN_KEY, token);
-  localStorage.setItem(GH_GIST_ID_KEY, gistId);
-}
-
-function clearGhConfig() {
-  [GH_TOKEN_KEY, GH_GIST_ID_KEY, GH_AUTOSYNC_KEY, GH_LAST_SYNC_KEY].forEach((k) => localStorage.removeItem(k));
-}
+/* ---------- cloud backup (zdieľané s cloud-sync.js) ---------- */
 
 function buildBackupObject() {
   return {
@@ -468,202 +447,13 @@ function applyRemoteBackup(backup) {
   return { added, updated, prehladCount };
 }
 
-async function ghRequest(url, options = {}) {
-  const { token } = getGhConfig();
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Accept": "application/vnd.github+json",
-      "Content-Type": "application/json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...(options.headers || {})
-    }
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    let ghMessage = "";
-    try { ghMessage = JSON.parse(text).message || ""; } catch (e) {}
-    const scopesHeader = res.headers.get("x-oauth-scopes");
-    const suffix = ghMessage ? ` GitHub hovorí: "${ghMessage}".` : "";
-    if (res.status === 401) {
-      throw new Error("Token je neplatný alebo expirovaný (401)." + suffix + " Skontroluj: 1) je to CLASSIC token (začína ghp_), nie fine-grained, 2) je skopírovaný celý bez medzier, 3) nie je revokovaný/expirovaný.");
-    }
-    if (res.status === 403) {
-      const { token: curToken } = getGhConfig();
-      if (/^github_pat_/.test(curToken)) {
-        throw new Error("Prístup zamietnutý (403) – máš fine-grained token (github_pat_...), ten Gist API nepodporuje bez ohľadu na povolenia." + suffix + " Odpoj sync a vytvor nový s CLASSIC tokenom (začína 'ghp_', scope 'gist').");
-      }
-      const scopeNote = scopesHeader !== null ? ` Scopes na tokene: "${scopesHeader}".` : "";
-      throw new Error("Prístup zamietnutý (403)." + suffix + scopeNote + " Ak medzi scopes vyššie nie je 'gist', vytvor token znova so zaškrtnutým 'gist'. Ak tam je, ide pravdepodobne o dočasný rate limit – skús o minútu.");
-    }
-    if (res.status === 404) {
-      throw new Error("Gist sa nenašiel (404)." + suffix + " Ak si ho zmazal na GitHube, odpoj sync a vytvor nový.");
-    }
-    throw new Error(`GitHub API ${res.status}: ${ghMessage || text.slice(0, 200)}`);
-  }
-  return res.json();
-}
-
-// Overí token samostatným volaním skôr, než sa čokoľvek vytvorí -
-// jasnejšia diagnostika pre používateľa.
-async function ghVerifyToken() {
-  await ghRequest("https://api.github.com/gists?per_page=1");
-}
-
-async function ghFetchGistContent(gistId) {
-  const data = await ghRequest(`https://api.github.com/gists/${gistId}`);
-  const file = data.files && data.files[GIST_FILENAME];
-  if (!file) return null;
-  if (file.truncated && file.raw_url) {
-    const rawRes = await fetch(file.raw_url);
-    return JSON.parse(await rawRes.text());
-  }
-  return JSON.parse(file.content);
-}
-
-async function ghCreateGist(contentObj) {
-  const data = await ghRequest("https://api.github.com/gists", {
-    method: "POST",
-    body: JSON.stringify({
-      description: "Dochádzka appka - sync záloha (súkromné)",
-      public: false,
-      files: { [GIST_FILENAME]: { content: JSON.stringify(contentObj, null, 2) } }
-    })
-  });
-  return data.id;
-}
-
-async function ghUpdateGist(gistId, contentObj) {
-  await ghRequest(`https://api.github.com/gists/${gistId}`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      files: { [GIST_FILENAME]: { content: JSON.stringify(contentObj, null, 2) } }
-    })
-  });
-}
-
-async function syncNow(opts = {}) {
-  const silent = !!opts.silent;
-  const { token, gistId } = getGhConfig();
-  if (!token || !gistId) { if (!silent) toast("Sync nie je nastavený"); return; }
-  if (!silent) toast("Synchronizujem…");
-  try {
-    const remote = await ghFetchGistContent(gistId);
-    let changed = false;
-    if (remote) {
-      const { added, updated, prehladCount } = applyRemoteBackup(remote);
-      changed = added > 0 || updated > 0 || prehladCount > 0;
-    }
-    const merged = buildBackupObject();
-    await ghUpdateGist(gistId, merged);
-    localStorage.setItem(GH_LAST_SYNC_KEY, new Date().toISOString());
-    renderSyncStatus();
-    if (changed) {
-      toast("Sync hotový, nové dáta – appka sa obnoví");
-      setTimeout(() => location.reload(), 1000);
-    } else if (!silent) {
-      toast("Sync hotový, žiadne nové dáta");
-    }
-  } catch (e) {
-    console.error(e);
-    if (!silent) toast("Sync zlyhal: " + e.message);
-  }
-}
-
-async function createNewSync() {
-  // odstráni všetky biele znaky vrátane neviditeľných z kopírovania (nbsp, newline)
-  const token = document.getElementById("ghToken").value.replace(/\s+/g, "");
-  if (!token) { toast("Zadaj GitHub token"); return; }
-  if (/^github_pat_/.test(token)) {
-    toast("Toto je fine-grained token (github_pat_...) – GitHub Gist API ho nepodporuje, aj keby si mal zaškrtnuté povolenia. Vytvor CLASSIC token: Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token, zaškrtni scope 'gist'.");
-    return;
-  }
-  if (!/^ghp_/.test(token)) {
-    toast("Toto nevyzerá ako GitHub token – classic token začína 'ghp_'. Skontroluj, či si skopíroval správnu hodnotu.");
-    return;
-  }
-  try {
-    toast("Overujem token…");
-    setGhConfig(token, ""); // token musí byť uložený skôr, než ghRequest naň siahne
-    await ghVerifyToken();
-    toast("Token OK, vytváram sync…");
-    const gistId = await ghCreateGist(buildBackupObject());
-    setGhConfig(token, gistId);
-    localStorage.setItem(GH_LAST_SYNC_KEY, new Date().toISOString());
-    toast("Sync vytvorený");
-    renderSyncStatus();
-  } catch (e) {
-    console.error(e);
-    setGhConfig("", ""); // vyčistiť neúspešný pokus, nech nezostane zaseknutý zlý token
-    renderSyncStatus();
-    toast("Nepodarilo sa vytvoriť sync: " + e.message);
-  }
-}
-
-function buildSyncCode() {
-  const { token, gistId } = getGhConfig();
-  return btoa(JSON.stringify({ t: token, g: gistId }));
-}
-
-async function connectWithCode() {
-  const code = document.getElementById("syncCodeInput").value.trim();
-  if (!code) { toast("Vlož sync kód"); return; }
-  try {
-    const parsed = JSON.parse(atob(code));
-    if (!parsed.t || !parsed.g) throw new Error("neplatný kód");
-    setGhConfig(parsed.t, parsed.g);
-    toast("Pripájam…");
-    renderSyncStatus();
-    await syncNow();
-  } catch (e) {
-    console.error(e);
-    toast("Neplatný sync kód");
-  }
-}
-
-function renderSyncStatus() {
-  const { token, gistId } = getGhConfig();
-  const configured = !!(token && gistId);
-  const setupEl = document.getElementById("syncSetup");
-  const statusEl = document.getElementById("syncStatus");
-  if (!setupEl || !statusEl) return;
-  setupEl.hidden = configured;
-  statusEl.hidden = !configured;
-  if (configured) {
-    const last = localStorage.getItem(GH_LAST_SYNC_KEY);
-    document.getElementById("lastSyncTime").textContent = last ? new Date(last).toLocaleString("sk-SK") : "zatiaľ nikdy";
-    document.getElementById("autoSyncToggle").checked = localStorage.getItem(GH_AUTOSYNC_KEY) === "1";
-  }
-}
-
-document.getElementById("btnCreateGist").addEventListener("click", createNewSync);
-document.getElementById("btnConnectSync").addEventListener("click", connectWithCode);
-document.getElementById("btnSyncNow").addEventListener("click", () => syncNow());
-document.getElementById("btnCopySyncCode").addEventListener("click", async () => {
-  const code = buildSyncCode();
-  try {
-    await navigator.clipboard.writeText(code);
-    toast("Sync kód skopírovaný");
-  } catch (e) {
-    window.prompt("Skopíruj tento kód:", code);
-  }
-});
-document.getElementById("autoSyncToggle").addEventListener("change", (e) => {
-  localStorage.setItem(GH_AUTOSYNC_KEY, e.target.checked ? "1" : "0");
-});
-document.getElementById("btnDisconnectSync").addEventListener("click", () => {
-  if (confirm("Odpojiť sync? Lokálne dáta zostanú, len sa appka prestane pripájať na GitHub.")) {
-    clearGhConfig();
-    renderSyncStatus();
-    toast("Sync odpojený");
-  }
-});
-
-renderSyncStatus();
-if (localStorage.getItem(GH_AUTOSYNC_KEY) === "1") {
-  syncNow({ silent: true });
-}
+// Expozícia pre cloud-sync.js (Supabase push/pull používa tieto dve funkcie).
+window.__buildBackupObject = buildBackupObject;
+window.__applyRemoteBackupIfChanged = function (remoteData) {
+  if (!remoteData) return false;
+  const { added, updated, prehladCount } = applyRemoteBackup(remoteData);
+  return added > 0 || updated > 0 || prehladCount > 0;
+};
 
 /* ---------- tabs ---------- */
 
