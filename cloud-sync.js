@@ -100,7 +100,29 @@ function subscribeRealtime(userId) {
     .subscribe();
 }
 
+// Odkaz z emailu vo formáte ?token_hash=...&type=email - funguje nezávisle od toho,
+// v akom prehliadači/appke (napr. Mail appka na iPhone) sa odkaz otvorí, na rozdiel
+// od pôvodného PKCE ?code= formátu, ktorý vyžaduje presne ten istý prehliadač.
+async function handleEmailLinkIfPresent() {
+  const params = new URLSearchParams(window.location.search);
+  const tokenHash = params.get("token_hash");
+  const type = params.get("type");
+  if (!tokenHash) return false;
+  const statusEl = document.getElementById("authStatus");
+  if (statusEl) statusEl.textContent = "Prihlasujem…";
+  const { error } = await sbClient.auth.verifyOtp({ token_hash: tokenHash, type: type || "email" });
+  // odstráň token z URL, nech nezostane v histórii/pri obnovení stránky
+  window.history.replaceState({}, document.title, window.location.pathname);
+  if (error) {
+    console.error("verifyOtp error", error);
+    if (statusEl) statusEl.textContent = "Prihlásenie zlyhalo: " + error.message;
+    return false;
+  }
+  return true;
+}
+
 async function initAuth() {
+  await handleEmailLinkIfPresent();
   const { data: { session } } = await sbClient.auth.getSession();
   if (session) {
     showApp(session);
