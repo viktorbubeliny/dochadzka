@@ -110,7 +110,12 @@ async function handleEmailLinkIfPresent() {
   if (!tokenHash) return false;
   const statusEl = document.getElementById("authStatus");
   if (statusEl) statusEl.textContent = "Prihlasujem…";
-  const { error } = await sbClient.auth.verifyOtp({ token_hash: tokenHash, type: type || "email" });
+  let error = null;
+  try {
+    ({ error } = await sbClient.auth.verifyOtp({ token_hash: tokenHash, type: type || "email" }));
+  } catch (e) {
+    error = e;
+  }
   // odstráň token z URL, nech nezostane v histórii/pri obnovení stránky
   window.history.replaceState({}, document.title, window.location.pathname);
   if (error) {

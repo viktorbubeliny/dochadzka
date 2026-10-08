@@ -240,3 +240,6 @@ h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: v
 }
 .auth-box h1 { font-size: 22px; margin: 0 0 8px; }
 .auth-box .btn { width: 100%; margin-top: 4px; }
+
+/* atribút hidden musí vždy vyhrať (inak ho prebije display:flex na .auth-overlay) */
+[hidden] { display: none !important; }
