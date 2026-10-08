@@ -59,9 +59,15 @@ async function doCloudPush() {
       .upsert({ user_id: session.user.id, data: window.__buildBackupObject(), updated_at: new Date().toISOString() })
       .select("updated_at")
       .single();
-    if (error) { console.error("cloud push error", error); localStorage.setItem(K_DIRTY, "1"); return false; }
+    if (error) {
+      console.error("cloud push error", error);
+      localStorage.setItem(K_DIRTY, "1");
+      setSyncMsg("Odoslanie zlyhalo: " + error.message + (error.code ? " (" + error.code + ")" : ""), true);
+      return false;
+    }
     localStorage.setItem(K_SYNCED, data.updated_at);
     setLastSync(new Date());
+    setSyncMsg("Zmeny sú odoslané do cloudu.", false);
     return true;
   } finally {
     isPushing = false;
@@ -78,7 +84,11 @@ async function pullAndMerge(opts = {}) {
       .select("data, updated_at")
       .eq("user_id", session.user.id)
       .maybeSingle();
-    if (error) { console.error("cloud pull error", error); return; }
+    if (error) {
+      console.error("cloud pull error", error);
+      setSyncMsg("Načítanie z cloudu zlyhalo: " + error.message + (error.code ? " (" + error.code + ")" : ""), true);
+      return;
+    }
 
     // žiadna cloudová záloha zatiaľ -> nahraj lokálne dáta
     if (!row) {
@@ -123,6 +133,12 @@ async function pullAndMerge(opts = {}) {
   } finally {
     isPulling = false;
   }
+}
+
+function setSyncMsg(text, isError) {
+  const el = document.getElementById("syncMsg");
+  if (el) { el.textContent = text; el.style.color = isError ? "#f87171" : ""; }
+  if (isError && window.toast) window.toast(text);
 }
 
 function setLastSync(d) {
@@ -205,6 +221,13 @@ async function initAuth() {
   });
 }
 
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && localStorage.getItem(K_DIRTY) === "1") {
+    clearTimeout(pushTimer);
+    doCloudPush();
+  }
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   initAuth();
 
@@ -231,5 +254,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (btnSignOut) btnSignOut.addEventListener("click", async () => { await sbClient.auth.signOut(); });
 
   const btnSyncNow = document.getElementById("btnSyncNow");
-  if (btnSyncNow) btnSyncNow.addEventListener("click", () => pullAndMerge());
+  if (btnSyncNow) btnSyncNow.addEventListener("click", async () => {
+    setSyncMsg("Synchronizujem…", false);
+    if (localStorage.getItem(K_DIRTY) === "1") { clearTimeout(pushTimer); await doCloudPush(); }
+    await pullAndMerge();
+  });
 });

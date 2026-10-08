@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "2.1";
+const APP_VERSION = "2.2";
 const STORAGE_KEY = "dochadzka_entries_v1";
 
 /* ---------- utils ---------- */
