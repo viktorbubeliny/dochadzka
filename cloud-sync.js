@@ -1,17 +1,20 @@
 "use strict";
 
 /* ---------- Supabase cloud sync ---------- */
-/* Nahrádza pôvodný GitHub Gist sync. Prihlásenie cez magic link (email),
-   dáta sa ukladajú do tabuľky `backups` (jeden riadok na používateľa),
-   automatický push po zmene + realtime pull keď sa zmenia na inom zariadení. */
+/* Prihlásenie cez magic link (email). Dáta = jeden riadok na používateľa v tabuľke `backups`.
+   Logika: čas poslednej synchronizácie (cloud_synced_at) + príznak neodoslaných zmien (cloud_dirty).
+   - nič nové vzdialene          -> nič sa nedeje
+   - vzdialene novšie, lokálne čisté -> lokálny stav sa NAHRADÍ vzdialeným (vrátane zmazaných dní)
+   - prvé pripojenie / konflikt  -> zjednotenie oboch stavov a odoslanie */
 
 const SUPABASE_URL = "https://hboszfmppcvzxbfdrnyt.supabase.co";
 const SUPABASE_KEY = "sb_publishable_vYURF3EhA-SI_j5oIirSNg_D5fCmeyZ";
+const K_SYNCED = "cloud_synced_at";
+const K_DIRTY = "cloud_dirty";
 
 const sbClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Lokálna vrstva pre Prehľad (React bundle) - rovnaké localStorage kľúče ako
-// predtým (prehlad_entries, prehlad_allowances), len navyše spúšťa cloud push.
+// Lokálna vrstva pre Prehľad (React bundle) - rovnaké localStorage kľúče ako predtým.
 window.storage = {
   async get(key) {
     return { value: localStorage.getItem("prehlad_" + key) };
@@ -24,41 +27,97 @@ window.storage = {
 };
 
 let pushTimer = null;
+let isPushing = false;
+let isPulling = false;
+
 function scheduleCloudPush() {
+  if (window.__suppressPush) return;
+  localStorage.setItem(K_DIRTY, "1");
   clearTimeout(pushTimer);
   pushTimer = setTimeout(doCloudPush, 1500);
 }
 window.__scheduleCloudPush = scheduleCloudPush;
 
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) => deepEqual(a[k], b[k]));
+}
+const core = (o) => ({ dochadzka: o.dochadzka || [], prehlad: o.prehlad || {} });
+
 async function doCloudPush() {
   const { data: { session } } = await sbClient.auth.getSession();
-  if (!session || !window.__buildBackupObject) return;
-  const payload = window.__buildBackupObject();
-  const { error } = await sbClient
-    .from("backups")
-    .upsert({ user_id: session.user.id, data: payload, updated_at: new Date().toISOString() });
-  if (error) { console.error("cloud push error", error); return; }
-  setLastSync(new Date());
+  if (!session || !window.__buildBackupObject) return false;
+  isPushing = true;
+  try {
+    localStorage.setItem(K_DIRTY, "0"); // nová zmena počas odosielania ho nastaví späť na 1
+    const { data, error } = await sbClient
+      .from("backups")
+      .upsert({ user_id: session.user.id, data: window.__buildBackupObject(), updated_at: new Date().toISOString() })
+      .select("updated_at")
+      .single();
+    if (error) { console.error("cloud push error", error); localStorage.setItem(K_DIRTY, "1"); return false; }
+    localStorage.setItem(K_SYNCED, data.updated_at);
+    setLastSync(new Date());
+    return true;
+  } finally {
+    isPushing = false;
+  }
 }
 
-let isPulling = false;
 async function pullAndMerge(opts = {}) {
   const { data: { session } } = await sbClient.auth.getSession();
-  if (!session || isPulling) return;
+  if (!session || isPulling || isPushing) return;
   isPulling = true;
   try {
-    const { data, error } = await sbClient
+    const { data: row, error } = await sbClient
       .from("backups")
       .select("data, updated_at")
       .eq("user_id", session.user.id)
       .maybeSingle();
     if (error) { console.error("cloud pull error", error); return; }
-    if (data && data.data && window.__applyRemoteBackupIfChanged) {
-      const changed = window.__applyRemoteBackupIfChanged(data.data);
-      if (changed) {
-        if (!opts.silent && window.toast) window.toast("Nové dáta z iného zariadenia - appka sa obnoví");
-        setTimeout(() => location.reload(), 800);
-      }
+
+    // žiadna cloudová záloha zatiaľ -> nahraj lokálne dáta
+    if (!row) {
+      if (window.__hasLocalData && window.__hasLocalData()) await doCloudPush();
+      setLastSync(new Date());
+      return;
+    }
+
+    const synced = localStorage.getItem(K_SYNCED);
+    const dirty = localStorage.getItem(K_DIRTY) === "1";
+
+    if (row.updated_at === synced) {
+      if (dirty) scheduleCloudPush();
+      setLastSync(new Date());
+      return;
+    }
+
+    if (synced && !dirty) {
+      // vzdialená zmena z iného zariadenia, lokálne nič neodoslané -> prevezmi vzdialený stav
+      window.__replaceWithBackup(row.data);
+      localStorage.setItem(K_SYNCED, row.updated_at);
+      if (!opts.silent && window.toast) window.toast("Nové dáta z iného zariadenia - appka sa obnoví");
+      setTimeout(() => location.reload(), 600);
+      return;
+    }
+
+    // prvé pripojenie tohto zariadenia alebo konflikt -> zjednotenie a odoslanie
+    const changed = window.__mergeRemoteBackup(row.data);
+    const remoteCore = core(row.data || {});
+    const localCore = core(window.__buildBackupObject());
+    if (!deepEqual(localCore, remoteCore)) {
+      await doCloudPush();
+    } else {
+      localStorage.setItem(K_SYNCED, row.updated_at);
+      localStorage.setItem(K_DIRTY, "0");
+    }
+    if (changed) {
+      if (window.toast) window.toast("Dáta zlúčené - appka sa obnoví");
+      setTimeout(() => location.reload(), 600);
     }
     setLastSync(new Date());
   } finally {
@@ -100,9 +159,7 @@ function subscribeRealtime(userId) {
     .subscribe();
 }
 
-// Odkaz z emailu vo formáte ?token_hash=...&type=email - funguje nezávisle od toho,
-// v akom prehliadači/appke (napr. Mail appka na iPhone) sa odkaz otvorí, na rozdiel
-// od pôvodného PKCE ?code= formátu, ktorý vyžaduje presne ten istý prehliadač.
+// Odkaz z emailu vo formáte ?token_hash=...&type=email - funguje v ktoromkoľvek prehliadači/appke.
 async function handleEmailLinkIfPresent() {
   const params = new URLSearchParams(window.location.search);
   const tokenHash = params.get("token_hash");
@@ -116,7 +173,6 @@ async function handleEmailLinkIfPresent() {
   } catch (e) {
     error = e;
   }
-  // odstráň token z URL, nech nezostane v histórii/pri obnovení stránky
   window.history.replaceState({}, document.title, window.location.pathname);
   if (error) {
     console.error("verifyOtp error", error);
@@ -140,8 +196,8 @@ async function initAuth() {
   sbClient.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_IN" && session) {
       showApp(session);
-      subscribeRealtime(session.user.id);
-      pullAndMerge();
+      // odložene, aby sme nevolali Supabase API priamo vnútri callbacku
+      setTimeout(() => { subscribeRealtime(session.user.id); pullAndMerge(); }, 0);
     } else if (event === "SIGNED_OUT") {
       if (realtimeChannel) { sbClient.removeChannel(realtimeChannel); realtimeChannel = null; }
       showAuthOverlay();
@@ -163,23 +219,17 @@ document.addEventListener("DOMContentLoaded", () => {
       btnSend.disabled = true;
       const { error } = await sbClient.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: window.location.href }
+        options: { emailRedirectTo: window.location.origin + window.location.pathname }
       });
       btnSend.disabled = false;
       if (error) { statusEl.textContent = "Chyba: " + error.message; return; }
-      statusEl.textContent = "Odkaz poslaný na " + email + " - skontroluj si email a otvor ho na tomto zariadení.";
+      statusEl.textContent = "Odkaz poslaný na " + email + " - skontroluj si email (aj spam).";
     });
   }
 
   const btnSignOut = document.getElementById("btnSignOut");
-  if (btnSignOut) {
-    btnSignOut.addEventListener("click", async () => {
-      await sbClient.auth.signOut();
-    });
-  }
+  if (btnSignOut) btnSignOut.addEventListener("click", async () => { await sbClient.auth.signOut(); });
 
   const btnSyncNow = document.getElementById("btnSyncNow");
-  if (btnSyncNow) {
-    btnSyncNow.addEventListener("click", () => pullAndMerge());
-  }
+  if (btnSyncNow) btnSyncNow.addEventListener("click", () => pullAndMerge());
 });

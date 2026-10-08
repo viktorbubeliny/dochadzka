@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "2.0";
+const APP_VERSION = "2.1";
 const STORAGE_KEY = "dochadzka_entries_v1";
 
 /* ---------- utils ---------- */
@@ -447,12 +447,35 @@ function applyRemoteBackup(backup) {
   return { added, updated, prehladCount };
 }
 
-// Expozícia pre cloud-sync.js (Supabase push/pull používa tieto dve funkcie).
+// Expozícia pre cloud-sync.js (Supabase push/pull).
 window.__buildBackupObject = buildBackupObject;
-window.__applyRemoteBackupIfChanged = function (remoteData) {
+
+function backupSignature() {
+  return JSON.stringify([entries, localStorage.getItem("prehlad_entries"), localStorage.getItem("prehlad_allowances")]);
+}
+
+// Zlúči vzdialenú zálohu s lokálnym stavom (zjednotenie). Vracia true len ak sa lokálny stav naozaj zmenil.
+window.__mergeRemoteBackup = function (remoteData) {
   if (!remoteData) return false;
-  const { added, updated, prehladCount } = applyRemoteBackup(remoteData);
-  return added > 0 || updated > 0 || prehladCount > 0;
+  const before = backupSignature();
+  window.__suppressPush = true;
+  try { applyRemoteBackup(remoteData); } finally { window.__suppressPush = false; }
+  return backupSignature() !== before;
+};
+
+// Úplne nahradí lokálny stav vzdialeným (vrátane zmazaných dní). Po volaní treba stránku obnoviť.
+window.__replaceWithBackup = function (remoteData) {
+  if (!remoteData) return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.isArray(remoteData) ? remoteData : (remoteData.dochadzka || [])));
+  const pre = (remoteData && remoteData.prehlad) || {};
+  localStorage.setItem("prehlad_entries", JSON.stringify(pre.entries || {}));
+  if (pre.allowances) localStorage.setItem("prehlad_allowances", JSON.stringify(pre.allowances));
+  else localStorage.removeItem("prehlad_allowances");
+};
+
+window.__hasLocalData = function () {
+  const pe = safeParseLS("prehlad_entries") || {};
+  return entries.length > 0 || Object.keys(pe).length > 0;
 };
 
 /* ---------- tabs ---------- */
